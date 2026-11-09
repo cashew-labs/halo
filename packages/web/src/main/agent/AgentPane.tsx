@@ -1012,7 +1012,12 @@ function ThreadView({
       }}
     >
       {items.map((item) => (
-        <ThreadViewRow key={item.id} item={item} threadId={threadId} />
+        <ThreadViewRow
+          key={item.id}
+          item={item}
+          threadId={threadId}
+          summaryOnly={state.agentId !== undefined}
+        />
       ))}
       {optimisticMessages.map((message) => (
         <ThreadViewRow
@@ -1042,12 +1047,14 @@ function ThreadView({
 function ThreadViewRow({
   item,
   threadId,
+  summaryOnly,
   uploads,
   onWithdraw,
   queueDisabled,
 }: {
   item: ThreadViewItem;
   threadId: string | undefined;
+  summaryOnly?: boolean;
   /** Upload state for each attachment of a message that has not been sent. */
   uploads?: readonly (ChatUpload | undefined)[];
   onWithdraw?: () => Promise<void>;
@@ -1191,7 +1198,9 @@ function ThreadViewRow({
     <div className={assistantRow} aria-label="Assistant message">
       {item.parts.map((part) => {
         if (part.kind === "toolActivity") {
-          return <ToolActivity key={part.id} part={part} />;
+          return (
+            <ToolActivity key={part.id} part={part} summaryOnly={summaryOnly} />
+          );
         }
         if (part.kind === "executorConnection") {
           return (

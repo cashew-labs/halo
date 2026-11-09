@@ -122,6 +122,9 @@ test("projects one stable row per exec while nested calls stream, complete, and 
   expect(live.active.map((active) => active.label.text)).toEqual([
     "Using Gmail",
   ]);
+  expect(toolActivities({ ...snapshot, agentId: "guide" })).toEqual([
+    streaming,
+  ]);
 
   const failedFinish = apply(snapshot, [
     {
@@ -168,6 +171,7 @@ test("projects one stable row per exec while nested calls stream, complete, and 
       live: false,
     }),
   ).toEqual({ completed: "Used Gmail", active: [] });
+  expect(toolActivities({ ...failedFinish, agentId: "guide" })).toEqual([]);
 });
 
 test("keeps each top-level exec separate from its siblings and from direct tools", () => {
@@ -233,7 +237,7 @@ test("keeps each top-level exec separate from its siblings and from direct tools
   ).toEqual(["Using Gmail", "ls", "Using Gmail"]);
 });
 
-test("agent conversations show committed sends and action cards without private narration or tool rows", () => {
+test("agent conversations stream assistant text and keep action cards without completed tool rows", () => {
   const approval = {
     id: "approve",
     toolPath: "files.remove",
@@ -269,21 +273,11 @@ test("agent conversations show committed sends and action cards without private 
         id: "execution",
         message: {
           ...toolUse([
-            {
-              id: "send",
-              name: "send_user_message",
-              arguments: { text: "Hello" },
-            },
             { id: "exec", name: "exec", arguments: { js: "private()" } },
           ]),
           content: [
-            { type: "text", text: "PRIVATE NARRATION" },
+            { type: "text", text: "I will review this." },
             ...toolUse([
-              {
-                id: "send",
-                name: "send_user_message",
-                arguments: { text: "Hello" },
-              },
               { id: "exec", name: "exec", arguments: { js: "private()" } },
             ]).content,
           ],
@@ -308,30 +302,28 @@ test("agent conversations show committed sends and action cards without private 
       id: "run",
       message: {
         ...toolUse([]),
-        content: [{ type: "text", text: "PRIVATE STREAM" }],
+        content: [{ type: "text", text: "Here is the review" }],
       },
-      tools: [
-        {
-          type: "tool",
-          id: "send",
-          tool: { path: "send_user_message", displayName: "Send" },
-          arguments: { text: "Hello" },
-          status: "running",
-          result: {
-            content: [],
-            details: { kind: "agent.userMessage", text: "UNCOMMITTED" },
-          },
-        },
-      ],
+      tools: [],
     },
   };
   const before = threadViewItems(snapshot);
-  expect(JSON.stringify(before)).not.toMatch(/PRIVATE|UNCOMMITTED|private\(\)/);
+  expect(JSON.stringify(before)).not.toContain("private()");
   const parts = before.flatMap((item) =>
     item.kind === "assistantTurn" ? item.parts : [],
   );
   expect(parts).toEqual(
     expect.arrayContaining([
+      expect.objectContaining({
+        kind: "text",
+        text: "I will review this.",
+        streaming: false,
+      }),
+      expect.objectContaining({
+        kind: "text",
+        text: "Here is the review",
+        streaming: true,
+      }),
       expect.objectContaining({ kind: "toolApproval", approval }),
       expect.objectContaining({ kind: "executorConnection", request }),
     ]),
@@ -341,40 +333,5 @@ test("agent conversations show committed sends and action cards without private 
     attachments: [{ name: "notes.txt", path: "notes.txt" }],
     references: [{ path: "plan.md" }],
   });
-  expect(
-    toolActivities(snapshot).every(
-      (part) => part.kind === "toolActivity" && part.calls.length === 0,
-    ),
-  ).toBe(true);
-  const committed = applyThreadEvent(snapshot, {
-    type: "entry.committed",
-    entry: {
-      type: "toolResult",
-      id: "delivered",
-      toolCallId: "send",
-      tool: { path: "send_user_message", displayName: "Send" },
-      timestamp: 3,
-      isError: false,
-      output: {
-        type: "tool",
-        result: {
-          content: [{ type: "text", text: "Message sent." }],
-          details: { kind: "agent.userMessage", text: "Hello" },
-        },
-      },
-    },
-  });
-  const sentParts = threadViewItems(committed).flatMap((item) =>
-    item.kind === "assistantTurn"
-      ? item.parts.filter((part) => part.kind === "text")
-      : [],
-  );
-  expect(sentParts).toEqual([
-    { kind: "text", id: "text-delivered-0", text: "Hello", streaming: false },
-  ]);
-  expect(
-    threadViewItems({ ...committed, activeRun: undefined }),
-  ).toContainEqual(
-    expect.objectContaining({ id: "agent-delivered", parts: sentParts }),
-  );
+  expect(toolActivities(snapshot)).toEqual([]);
 });

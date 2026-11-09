@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  agentUserMessage,
+  assistantTextMessage,
   isThreadUnread,
   type AgentRecord,
   type ThreadSummary,
@@ -275,16 +275,16 @@ function AgentPreview({
       await api.thread.snapshot({ sessionId: agent.threadId }),
     enabled: draft.trim() === "" && thread !== undefined,
   });
-  const delivered = preview.data?.entries
+  const latestText = preview.data?.entries
     .flatMap((entry) => {
-      const message = agentUserMessage(entry);
+      const message = assistantTextMessage(entry);
       return message === undefined ? [] : [message.text];
     })
     .at(-1);
   const summary =
     draft.trim() !== ""
       ? `Draft: ${draft}`
-      : (delivered ??
+      : (latestText ??
         (preview.isError
           ? "Preview unavailable"
           : preview.isFetching

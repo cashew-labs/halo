@@ -13,7 +13,7 @@ import {
   reduceThreadUpdate,
   threadMessages,
   threadToolExecutions,
-  agentUserMessage,
+  assistantTextMessage,
   type HaloClient,
   type Hotkey,
   type TraceRecord,
@@ -1312,7 +1312,7 @@ serverTest(
 );
 
 serverTest(
-  "delivers agent messages only through committed native sends, independently of run completion",
+  "streams agent replies and keeps text searchable, readable, and available after restart",
   async ({ server, llm }) => {
     const input = {
       requestId: "planner",
@@ -1334,33 +1334,29 @@ serverTest(
     await llm.respond(({ tools, messages }) => {
       expect(systemText(messages)).toContain('persistent agent "Planner"');
       expect(systemText(messages)).toContain("Suggest a reading list.");
-      expect(tools).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            function: expect.objectContaining({ name: "send_user_message" }),
-          }),
-        ]),
+      expect(
+        tools?.some(
+          (tool) =>
+            tool.type === "function" &&
+            tool.function.name === "send_user_message",
+        ),
+      ).toBe(false);
+      expect(systemText(messages)).toContain(
+        "Your assistant replies stream directly to the user.",
       );
       return [
-        m.tool.start("send_user_message", {
-          id: "greet",
-          arguments: { text: "I'm Planner. Shall we make a reading list?" },
-        }),
-        m.tool.start("send_user_message", {
-          id: "suggest",
-          arguments: { text: "We could start with **history**." },
-        }),
+        m.assistant("I'm Planner. Shall we make a reading list?"),
+        m.tool.start("exec", { id: "greet", arguments: { js: '"Ready"' } }),
       ];
     });
     await llm.waitForRequest();
     const delivered = await server.rpc.thread.snapshot(thread);
     const sent = delivered.entries.flatMap((entry) => {
-      const message = agentUserMessage(entry);
+      const message = assistantTextMessage(entry);
       return message === undefined ? [] : [message];
     });
     expect(sent.map((message) => message.text)).toEqual([
       "I'm Planner. Shall we make a reading list?",
-      "We could start with **history**.",
     ]);
     const lastId = sent.at(-1)!.id;
     await expect
@@ -1370,10 +1366,6 @@ serverTest(
         ),
       )
       .toMatchObject({ latestResultId: lastId, isRunning: true });
-    await server.rpc.thread.markRead({
-      ...thread,
-      observedResultId: sent[0]!.id,
-    });
     expect(
       isThreadUnread(
         (await server.rpc.thread.list()).find(
@@ -1382,19 +1374,22 @@ serverTest(
       ),
     ).toBe(true);
     await server.rpc.thread.markRead({ ...thread, observedResultId: lastId });
-    await llm.respond(m.assistant("PRIVATE_NARRATION_ONLY"));
+    await llm.respond(m.assistant("We could start with history."));
     await expect
       .poll(async () => (await server.rpc.thread.snapshot(thread)).activeRun)
       .toBeUndefined();
     const after = (await server.rpc.thread.list()).find(
       (summary) => summary.sessionId === agent.threadId,
     )!;
-    expect(after.latestResultId).toBe(lastId);
-    expect(isThreadUnread(after)).toBe(false);
+    expect(after.latestResultId).not.toBe(lastId);
+    expect(isThreadUnread(after)).toBe(true);
     expect(
-      (await server.rpc.workspace.search({ query: "PRIVATE_NARRATION_ONLY" }))
-        .hits,
-    ).toEqual([]);
+      (await server.rpc.workspace.search({ query: "start with history" })).hits,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sessionId: agent.threadId }),
+      ]),
+    );
     expect(
       (await server.rpc.workspace.search({ query: "reading list" })).hits,
     ).toEqual(
@@ -1406,26 +1401,25 @@ serverTest(
       ]),
     );
     const silent = server.promptAndWait({ ...thread, text: "Work silently." });
-    await llm.respond(
-      m.tool.start("send_user_message", {
-        id: "empty",
-        arguments: { text: "   " },
-      }),
-    );
-    await llm.respond(m.assistant("PRIVATE_SILENT_FINISH"));
+    await llm.respond(m.assistant(""));
     await silent;
     expect(
       (await server.rpc.thread.list()).find(
         (summary) => summary.sessionId === agent.threadId,
       )?.latestResultId,
-    ).toBe(lastId);
+    ).toBe(after.latestResultId);
     await server.stop();
     await server.start();
     expect(await server.rpc.agents.new(input)).toEqual(agent);
     const replayed = await server.rpc.thread.snapshot(thread);
     expect(
-      replayed.entries.flatMap((entry) => agentUserMessage(entry) ?? []),
-    ).toEqual(sent);
+      replayed.entries
+        .flatMap((entry) => assistantTextMessage(entry) ?? [])
+        .map((message) => message.text),
+    ).toEqual([
+      "I'm Planner. Shall we make a reading list?",
+      "We could start with history.",
+    ]);
     expect(replayed.activeRun).toBeUndefined();
     const ordinary = await server.rpc.thread.new();
     const reference = server.promptAndWait({
@@ -1443,8 +1437,7 @@ serverTest(
       ).toBe(false);
       const context = messages.map(messageText).join("\n");
       expect(context).toContain("Shall we make a reading list?");
-      expect(context).not.toContain("PRIVATE_NARRATION_ONLY");
-      expect(context).not.toContain("PRIVATE_SILENT_FINISH");
+      expect(context).toContain("We could start with history.");
       expect(context).not.toContain("You have just been created.");
       return m.assistant("Ordinary reply remains visible.");
     });
@@ -1499,10 +1492,10 @@ serverTest(
       expect(messages.map(messageText).join("\n")).toContain(
         "Find me one book on Rome.",
       );
-      return m.tool.start("send_user_message", {
-        id: "answer",
-        arguments: { text: "For a long history of Rome, try SPQR." },
-      });
+      return [
+        m.assistant("For a long history of Rome, try SPQR."),
+        m.tool.start("exec", { id: "answer", arguments: { js: '"Done"' } }),
+      ];
     });
     await llm.respond(m.error("Provider unavailable after delivery"));
     expect(
@@ -1520,7 +1513,7 @@ serverTest(
         .map((message) => message.displayText),
     ).toEqual(["Find me one book on Rome."]);
     const sent = snapshot.entries.flatMap(
-      (entry) => agentUserMessage(entry) ?? [],
+      (entry) => assistantTextMessage(entry) ?? [],
     );
     expect(sent.map((message) => message.text)).toEqual([
       "For a long history of Rome, try SPQR.",

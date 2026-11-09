@@ -1,6 +1,6 @@
 # Persistent agents
 
-Status: All three phases are implemented locally. Agents have saved identity, dynamic introductions, a native message tool, pinned circles, name-only creation, and editable settings. The pane shows delivered messages without execution rows.
+Status: Agents have saved identity, dynamic introductions, pinned circles, name-only creation, and editable settings. Replies stream as ordinary assistant text. The pane hides tool-call views and shows only the current activity summary, without expansion.
 
 Review the full flow in Phase 3: name an agent, talk in its existing conversation, return through its pinned circle, and edit its settings. The completed phases below link to their code commits. These local changes are not a release or deployment. Guidance on self-editing instructions and separate task threads remains open.
 
@@ -8,7 +8,7 @@ Review the full flow in Phase 3: name an agent, talk in its existing conversatio
 
 **Today:** Halo puts task conversations in the Threads list. Threads already persist, but each new task encourages another conversation. People must find an old thread or repeat context.
 
-**Proposed:** People enter a name, create an agent, and land in its continuous conversation. The agent speaks first: a short introduction, then a question about what they want it to do. Agents sit in a pinned row of circles at the top of the sidebar; a separate send-user-message tool controls their visible messages while execution history stays out of the transcript.
+**Proposed:** People enter a name, create an agent, and land in its continuous conversation. The agent speaks first: a short introduction, then a question about what they want it to do. Agents sit in a pinned row of circles at the top of the sidebar. Replies stream directly while tool-call views stay out of the transcript.
 
 ### Settled with Tanishq
 
@@ -21,8 +21,8 @@ Review the full flow in Phase 3: name an agent, talk in its existing conversatio
 - Keep that thread's continuous history and ID for all future messages.
 - Keep ordinary threads. Guidance on when an agent should create separate threads comes later.
 - Use circles without avatars for now.
-- Hide tool calls in agent conversations and provide a separate tool for messages to the user.
-- Expose `send_user_message` directly as a built-in model tool, like `read`. It must not require an `exec` call or tool discovery.
+- Hide tool-call views in agent conversations. Stream ordinary assistant text directly, without a separate message tool.
+- Reuse thread activity summaries such as “Using computer,” without an expand control. Hide completed activity rows.
 - Keep the pane similar to a thread pane. Include a settings button in its header.
 
 ### Proposed defaults to review
@@ -34,7 +34,7 @@ Review the full flow in Phase 3: name an agent, talk in its existing conversatio
 - The welcome uses ordinary text/Markdown messages, such as “Hey, I'm Chief” and “What would you like me to do?” Exact wording comes from the agent, not a client-inserted assistant bubble. Grok's avatar picker and multiple-choice onboarding card are not required for this slice.
 - All agents appear in this row; there is no separate pin/unpin feature in v1. Closing a tab never deletes or marks an agent done.
 - Keep approval requests, connection requests, failures, Stop, and a simple working indicator visible. Hiding calls must not hide an action the user needs to take.
-- Only a successful, committed send-user-message result produces an agent message. Do not turn ordinary final assistant text into a fallback message. An agent can send several messages during one run or finish silently.
+- Show assistant text as it streams. Committed nonblank assistant text advances unread state; tool-only work does not. Search, references, and sidebar previews use that same assistant text.
 - Use text/Markdown messages first. Keep existing incoming attachments and references; a new outgoing-attachment API is not part of this slice.
 
 ## An agent owns settings and links to one continuous thread
@@ -185,7 +185,24 @@ Two consumer E2Es in [[203fa33c:packages/workspace-server/test/workspace.test.ts
 
 At the Phase 1 commit, creation accepts empty instructions but does not start a run. Phase 2 below adds the dynamic introduction, and Phase 3 still adds the name-only form with `instructions: ""`. These additions do not change what the Phase 1 checks verified.
 
-## ✅ Phase 2: Make speaking to the user an explicit tool action
+## Current update: Stream replies and show summary-only activity
+
+The separate message tool has been removed. Agent instructions now say that assistant text streams directly to the user. Welcome runs still start on creation, in the same saved conversation.
+
+[[packages/web/src/main/agent/threadView.ts#threadViewItems]] keeps committed and streaming text, approval cards, and connection cards. It keeps live tool activity for its label but hides completed activity. [[packages/web/src/main/agent/ToolActivity.tsx#ToolActivity]] uses the same thread summary with `summaryOnly`, which renders no disclosure button or tool details. Ordinary threads keep expandable activity.
+
+```tsx
+<AgentConversation>
+  <AssistantReply streaming>{assistantText}</AssistantReply>
+  {toolsRunning && <ActivitySummary expandable={false} />}
+</AgentConversation>
+```
+
+[[packages/client/src/threadState.ts#assistantTextMessage]] reads nonblank committed assistant text for unread state and sidebar previews. Search and conversation references now include ordinary agent replies, excluding thinking and tool content.
+
+## Historical Phase 2: Make speaking to the user an explicit tool action
+
+This phase records the earlier implementation at the commits linked below. The current streaming update above replaces its message tool and delivery projections.
 
 **Today:** Before this phase, the thread pane showed assistant text and tool activity. Run completion or assistant entries set unread state, so hidden execution could produce a false unread dot.
 
