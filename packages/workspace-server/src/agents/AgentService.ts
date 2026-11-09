@@ -204,7 +204,7 @@ export class AgentService {
       threadId: agent.threadId,
       requestId: `create:${agent.id}`,
       prompt:
-        "You have just been created. Introduce yourself using your name, instructions, and available memory. Offer useful ways you could help and ask what the user would like you to do. Choose your own wording and use send_user_message. If the user has already sent a task, address it instead of repeating onboarding.",
+        "You have just been created. Introduce yourself using your name, instructions, and available memory. Offer useful ways you could help and ask what the user would like you to do. Choose your own wording. If the user has already sent a task, address it instead of repeating onboarding.",
     });
     if (started instanceof Error) return started;
     await using tx = this.db.useTransaction();

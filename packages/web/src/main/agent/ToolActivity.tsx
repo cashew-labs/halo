@@ -26,7 +26,13 @@ const chevronSize = "0.85em";
 const markSlot = "0.85em";
 const transitionRemovalDelayMs = motionDurationMs + 16;
 
-export function ToolActivity({ part }: { part: ToolActivityPart }) {
+export function ToolActivity({
+  part,
+  summaryOnly = false,
+}: {
+  part: ToolActivityPart;
+  summaryOnly?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const calls = part.calls;
   const workspace = useWorkspaceQuery().data;
@@ -43,8 +49,8 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
   const labelClassName = useStyles(styles.label);
   const shellLabelClassName = useStyles(styles.label, styles.shell);
   const additionalToolsClassName = useStyles(styles.additionalTools);
-  const interactive = calls.length > 0;
-  const visibleCalls = expanded ? calls : [];
+  const interactive = !summaryOnly && calls.length > 0;
+  const visibleCalls = interactive && expanded ? calls : [];
   const completedLabel = summary.completed;
   if (completedLabel === undefined && !part.live) return undefined;
   const activeTool = summary.active.at(-1);
@@ -111,7 +117,7 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
           {header}
         </div>
       )}
-      <AnimatedToolCalls calls={visibleCalls} />
+      {summaryOnly ? undefined : <AnimatedToolCalls calls={visibleCalls} />}
     </div>
   );
 }

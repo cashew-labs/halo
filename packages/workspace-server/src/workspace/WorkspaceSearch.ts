@@ -2,7 +2,6 @@ import path from "node:path";
 import * as errore from "errore";
 import { marked, type Token, type Tokens } from "marked";
 import {
-  agentUserMessage,
   type HaloEntry,
   type WorkspaceSearchHit,
   type WorkspaceSearchResponse,
@@ -140,12 +139,7 @@ function snippet(text: string, start: number, length: number) {
   };
 }
 
-function messageSegments(entry: HaloEntry, isAgent: boolean) {
-  if (isAgent) {
-    const sent = agentUserMessage(entry);
-    if (sent !== undefined)
-      return [{ text: sent.text, id: `text-${sent.id}-0` }];
-  }
+function messageSegments(entry: HaloEntry) {
   if (entry.type !== "message") return [];
   const message = entry.message;
   if (message.role === "user") {
@@ -159,7 +153,7 @@ function messageSegments(entry: HaloEntry, isAgent: boolean) {
         : message.content);
     return [{ text, id: entry.id }];
   }
-  if (message.role !== "assistant" || isAgent) return [];
+  if (message.role !== "assistant") return [];
   const segments: { text: string; id: string }[] = [];
   for (const part of message.content) {
     if (part.type === "text" && part.text.length > 0)
@@ -342,7 +336,7 @@ export class WorkspaceSearch {
       }
       for (const entry of snapshot.entries) {
         if (signal?.aborted || truncated) break;
-        for (const segment of messageSegments(entry, agent !== undefined)) {
+        for (const segment of messageSegments(entry)) {
           for (const offset of occurrences(
             segment.text,
             needle,

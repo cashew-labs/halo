@@ -8,7 +8,7 @@ import {
 import type { JsonRepresentation } from "@earendil-works/chord";
 import {
   chatPromptTitle,
-  agentUserMessage,
+  assistantTextMessage,
   type AgentRecord,
   type HaloMessage,
   type ThreadSnapshot,
@@ -150,7 +150,7 @@ export class ThreadProjection {
       latestResultId:
         this.agent !== undefined
           ? snapshot.entries.findLast(
-              (entry) => agentUserMessage(entry) !== undefined,
+              (entry) => assistantTextMessage(entry) !== undefined,
             )?.id
           : (snapshot.lastRun?.id ??
             snapshot.entries.findLast(

@@ -239,8 +239,9 @@ function workspaceSidebar(page: Page) {
 }
 
 e2eTest(
-  "creates an agent with a name, introduces itself quietly, and saves settings on the same conversation",
-  async ({ app, llm }) => {
+  "creates an agent, streams replies with summary-only activity, and saves settings on the same conversation",
+  async ({ app, llm }, testInfo) => {
+    testInfo.setTimeout(60_000);
     const sidebar = workspaceSidebar(app.page);
     const agents = sidebar.getByRole("region", { name: "Agents", exact: true });
     await expect(agents).toContainText("Create an agent");
@@ -279,18 +280,18 @@ e2eTest(
     await expect(
       pane.getByRole("article", { name: "You message", exact: true }),
     ).toHaveCount(0);
-    await llm.respond(
-      m.tool.start("send_user_message", {
-        id: "intro",
-        arguments: {
-          text: "I'm your reading guide. What would you like to explore?",
-        },
-      }),
-    );
+    const introduction = await llm.stream();
+    introduction.write(m.assistant("I'm your reading guide."));
+    await expect(pane).toContainText("I'm your reading guide.");
+    await app.page.screenshot({
+      path: testInfo.outputPath("agent-streaming.png"),
+    });
+    introduction.write(m.assistant(" What would you like to explore?"));
+    introduction.end();
     await expect(pane).toContainText("What would you like to explore?");
-    await llm.respond(m.assistant("Private execution note"));
-    await expect(pane).not.toContainText("Private execution note");
-    await expect(pane).not.toContainText("send_user_message");
+    await expect(pane.getByLabel("Tool activity", { exact: true })).toHaveCount(
+      0,
+    );
     await agents
       .getByRole("button", { name: "New agent", exact: true })
       .focus();
@@ -300,9 +301,6 @@ e2eTest(
     ).toBeFocused();
     await expect(app.page.getByRole("tooltip")).toContainText(
       "Draft: A book about Rome",
-    );
-    await expect(app.page.getByRole("tooltip")).not.toContainText(
-      "Private execution note",
     );
     const editor = pane.getByLabel("Message", { exact: true });
     await editor.focus();
@@ -403,13 +401,26 @@ e2eTest(
       expect(messages.map(messageText).join("\n")).toContain(
         "Prefer long histories of Rome.",
       );
-      return m.tool.start("send_user_message", {
-        id: "recommend",
-        arguments: { text: "Try SPQR." },
+      return m.tool.start("exec", {
+        id: "research",
+        arguments: { js: 'await tools.bash.run({ command: "sleep 3" })' },
       });
     });
-    await llm.respond(m.assistant("Done privately"));
+    const activity = renamed.getByLabel("Tool activity", { exact: true });
+    await expect(activity).toContainText("sleep 3");
+    await expect(activity.getByRole("button")).toHaveCount(0);
+    await expect(
+      renamed.getByLabel("Expand tool activity", { exact: true }),
+    ).toHaveCount(0);
+    await app.page.screenshot({
+      path: testInfo.outputPath("agent-activity.png"),
+    });
+    await llm.respond(m.assistant("Try SPQR."));
+    await expect(activity).toHaveCount(0);
     await expect(renamed).toContainText("Try SPQR.");
+    await app.page.screenshot({
+      path: testInfo.outputPath("agent-completed.png"),
+    });
     await app.page.reload();
     await expect(renamed).toContainText("Try SPQR.");
     await expect(settingsButton).toBeVisible();
@@ -422,9 +433,6 @@ e2eTest(
     ).toBeFocused();
     await expect(app.page.getByRole("tooltip")).toContainText("Research");
     await expect(app.page.getByRole("tooltip")).toContainText("Try SPQR.");
-    await expect(app.page.getByRole("tooltip")).not.toContainText(
-      "Done privately",
-    );
     await expect(
       app.page.getByRole("button", { name: "Done", exact: true }),
     ).toHaveCount(0);
@@ -445,13 +453,7 @@ e2eTest(
     await expect(
       circle.locator("..").getByLabel("Agent is working", { exact: true }),
     ).toBeVisible();
-    await llm.respond(
-      m.tool.start("send_user_message", {
-        id: "first-intro",
-        arguments: { text: "Hello from Guide" },
-      }),
-    );
-    await llm.respond(m.assistant("Private"));
+    await llm.respond(m.assistant("Hello from Guide"));
     await expect(
       circle
         .locator("..")
@@ -462,13 +464,13 @@ e2eTest(
       name: "Guide",
       instructions: "",
     });
-    await llm.respond(m.assistant("No delivery"));
+    await llm.respond(m.assistant(""));
     await app.server.rpc.agents.new({
       requestId: "third",
       name: "A very long agent name for a research assistant",
       instructions: "",
     });
-    await llm.respond(m.assistant("No delivery"));
+    await llm.respond(m.assistant(""));
     const circleNames = [
       "New agent",
       "Guide",

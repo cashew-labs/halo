@@ -2,7 +2,7 @@ import { useContext, useEffect, useSyncExternalStore } from "react";
 import * as errore from "errore";
 import {
   isThreadUnread,
-  agentUserMessage,
+  assistantTextMessage,
   type ThreadSnapshot,
   type ThreadSummary,
 } from "@get-halo/client";
@@ -52,7 +52,7 @@ export function useMarkThreadRead({
     .at(-1)?.id;
   const lastSentEntryId = isAgent
     ? state.entries
-        .filter((entry) => agentUserMessage(entry) !== undefined)
+        .filter((entry) => assistantTextMessage(entry) !== undefined)
         .at(-1)?.id
     : undefined;
 

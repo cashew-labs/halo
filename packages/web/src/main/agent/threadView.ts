@@ -3,7 +3,6 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import {
   type HaloMessage,
-  agentUserMessage,
   threadMessages,
   threadToolExecutions,
   userInterruptionCustomType,
@@ -145,7 +144,10 @@ export function threadViewItems(state: ThreadSnapshot): ThreadViewItem[] {
       live,
       executions,
     }).filter(
-      (part) => state.agentId === undefined || part.kind !== "toolActivity",
+      (part) =>
+        state.agentId === undefined ||
+        part.kind !== "toolActivity" ||
+        part.live,
     );
     if (parts.length > 0) {
       items.push({
@@ -172,7 +174,6 @@ export function threadViewItems(state: ThreadSnapshot): ThreadViewItem[] {
     let textIndex = 0;
     for (const part of message.content) {
       if (part.type === "text") {
-        if (state.agentId !== undefined) continue;
         if (part.text.length === 0) continue;
         turn.segments.push({
           kind: "text",
@@ -207,24 +208,6 @@ export function threadViewItems(state: ThreadSnapshot): ThreadViewItem[] {
   }
 
   for (const entry of state.entries) {
-    const sent =
-      state.agentId === undefined ? undefined : agentUserMessage(entry);
-    if (sent !== undefined) {
-      flush(false);
-      items.push({
-        kind: "assistantTurn",
-        id: `agent-${sent.id}`,
-        parts: [
-          {
-            kind: "text",
-            id: `text-${sent.id}-0`,
-            text: sent.text,
-            streaming: false,
-          },
-        ],
-      });
-      continue;
-    }
     if (entry.type !== "message") continue;
     const message = entry.message;
     if (
@@ -267,7 +250,7 @@ export function threadViewItems(state: ThreadSnapshot): ThreadViewItem[] {
   const last = items.at(-1);
   if (
     state.activeRun !== undefined &&
-    (state.agentId !== undefined || last === undefined || last.kind === "user")
+    (last === undefined || last.kind === "user")
   ) {
     items.push({
       kind: "assistantTurn",

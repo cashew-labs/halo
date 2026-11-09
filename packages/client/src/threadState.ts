@@ -471,23 +471,14 @@ export function executionWithOutput(
   return { ...execution, ...output, status };
 }
 
-const agentUserMessageSchema = Type.Object({
-  kind: Type.Literal("agent.userMessage"),
-  text: Type.String({ minLength: 1 }),
-});
-
-/** Only a successful, committed native send is a delivered agent message. */
-export function agentUserMessage(entry: HaloEntry) {
-  if (
-    entry.type !== "toolResult" ||
-    entry.tool.path !== "send_user_message" ||
-    entry.isError ||
-    !Value.Check(agentUserMessageSchema, entry.output.result.details)
-  )
-    return;
-  const { text } = entry.output.result.details;
+/** Read visible text from a committed assistant message, excluding tools and thinking. */
+export function assistantTextMessage(entry: HaloEntry) {
+  if (entry.type !== "message" || entry.message.role !== "assistant") return;
+  const text = entry.message.content
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("");
   if (text.trim() === "") return;
-  return { id: entry.id, text, timestamp: entry.timestamp };
+  return { id: entry.id, text, timestamp: entry.message.timestamp };
 }
 
 /** Read committed messages without tool-result entries, including execution. */

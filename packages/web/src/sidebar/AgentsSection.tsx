@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  agentUserMessage,
+  assistantTextMessage,
   isThreadUnread,
   type AgentRecord,
   type ThreadSummary,
@@ -277,7 +277,7 @@ function AgentPreview({
   });
   const delivered = preview.data?.entries
     .flatMap((entry) => {
-      const message = agentUserMessage(entry);
+      const message = assistantTextMessage(entry);
       return message === undefined ? [] : [message.text];
     })
     .at(-1);

@@ -4,7 +4,6 @@ import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import {
   isThreadUnread,
-  agentUserMessage,
   type ThreadSummary,
   type ThreadSummariesUpdate,
   type ChatPrompt,
@@ -305,17 +304,13 @@ export class ThreadManager {
       if (snapshot instanceof Error) return snapshot;
       const transcript = snapshot.entries
         .flatMap((entry) => {
-          if (snapshot.agentId !== undefined) {
-            const sent = agentUserMessage(entry);
-            if (sent !== undefined) return [`Assistant: ${sent.text}`];
-          }
           if (entry.type !== "message") return [];
           const message = entry.message;
           if (message.role === "user")
             return [
               `User: ${message.displayText ?? messageContentText(message.content)}`,
             ];
-          if (message.role === "assistant" && snapshot.agentId === undefined)
+          if (message.role === "assistant")
             return [`Assistant: ${messageContentText(message.content)}`];
           return [];
         })
