@@ -50,7 +50,7 @@ export function ToolActivity({
   const shellLabelClassName = useStyles(styles.label, styles.shell);
   const additionalToolsClassName = useStyles(styles.additionalTools);
   const interactive = !summaryOnly && calls.length > 0;
-  const visibleCalls = interactive && expanded ? calls : [];
+  const visibleCalls = expanded ? calls : [];
   const completedLabel = summary.completed;
   if (completedLabel === undefined && !part.live) return undefined;
   const activeTool = summary.active.at(-1);

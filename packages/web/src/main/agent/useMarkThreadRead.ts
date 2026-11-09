@@ -50,7 +50,7 @@ export function useMarkThreadRead({
       (entry) => entry.type === "message" && entry.message.role === "assistant",
     )
     .at(-1)?.id;
-  const lastSentEntryId = isAgent
+  const lastAssistantTextId = isAgent
     ? state.entries
         .filter((entry) => assistantTextMessage(entry) !== undefined)
         .at(-1)?.id
@@ -65,7 +65,7 @@ export function useMarkThreadRead({
       latestResultId === undefined ||
       !isUnread ||
       (isAgent
-        ? lastSentEntryId !== latestResultId
+        ? lastAssistantTextId !== latestResultId
         : lastRunId !== latestResultId &&
           lastAssistantEntryId !== latestResultId)
     )
@@ -98,7 +98,7 @@ export function useMarkThreadRead({
     threadId,
     isRunning,
     isAgent,
-    lastSentEntryId,
+    lastAssistantTextId,
     isUnread,
     latestResultId,
     state.activeRun,

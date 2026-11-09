@@ -275,7 +275,7 @@ function AgentPreview({
       await api.thread.snapshot({ sessionId: agent.threadId }),
     enabled: draft.trim() === "" && thread !== undefined,
   });
-  const delivered = preview.data?.entries
+  const latestText = preview.data?.entries
     .flatMap((entry) => {
       const message = assistantTextMessage(entry);
       return message === undefined ? [] : [message.text];
@@ -284,7 +284,7 @@ function AgentPreview({
   const summary =
     draft.trim() !== ""
       ? `Draft: ${draft}`
-      : (delivered ??
+      : (latestText ??
         (preview.isError
           ? "Preview unavailable"
           : preview.isFetching
