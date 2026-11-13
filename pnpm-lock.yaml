@@ -129,6 +129,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 5.0.1
         version: 5.0.1(vitest@5.0.1)
+      errore:
+        specifier: ^0.14.1
+        version: 0.14.1
       oxc-parser:
         specifier: ^0.150.0
         version: 0.150.0

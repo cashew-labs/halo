@@ -98,7 +98,7 @@ Alternatives considered:
 - `**/.tmp-tests/` is gitignored, except in the side-ref commit.
 - Temp tests use the package's existing fixtures and the same fixture API as durable tests.
 
-**Durable tier.** This tier uses the existing locations from `conventions/references/testing.md`.
+**Durable tier.** This tier uses the existing locations from `tools/semvariant/rules/R0042.md`.
 - There is no fixed budget. The coding agent and the reviewer choose the tier by judgment, and most tests should be temp tests.
 - A new durable test needs a rationale that the reviewer accepts, for example "guards invariant X across future changes".
 
@@ -172,7 +172,7 @@ Pi's `grep` and `find` respect `.gitignore`, so they do not list `.tmp-tests/` f
    This overrides any code-review instruction against commenting on test coverage. Coverage shows which changed lines run; the reviewer judges whether the tests that run them check the right behavior.
 
 **Prompt inputs:**
-- the repository's instruction files: `AGENTS.md` and `CLAUDE.md` if present, or the files listed in the optional `instructions` field. Halo's `AGENTS.md` links to the code-review and conventions skills, and the reviewer follows those links with its read tools;
+- the repository's instruction files: `AGENTS.md` and `CLAUDE.md` if present, or the files listed in the optional `instructions` field. Halo's generated `AGENTS.md` indexes scoped semvariant rules; the reviewer retrieves the applicable bodies with the semvariant CLI and follows the code-review skill;
 - the diff;
 - `report.json`, including the temp test paths;
 - the previous round's verdict and the coder's replies.

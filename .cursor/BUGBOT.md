@@ -1,11 +1,10 @@
 # Halo review rules
 
-Read `.agents/skills/conventions/` before reviewing. Start at `SKILL.md`.
-Read only the reference pages that apply to the changed files.
+Run `pnpm semvariant context <changed paths>` or `pnpm semvariant context --diff <base>` from the repository root. Read the applicable full rules with `pnpm semvariant show <IDs>` or add `--full` to the context command.
 
-Those pages are the source of truth. If the diff violates them:
+Canonical rules in `tools/semvariant/rules/` are the source of truth. Generated `AGENTS.md` files index their titles by directory. If the diff violates an applicable rule:
 
 - Add a Bug
-- Cite the page and the violating symbol or import
-- Do not restate the handbook in the comment
+- Cite the rule ID, source file, and violating symbol or import
+- Do not restate the rule in the comment
 - Do not invent extra rules

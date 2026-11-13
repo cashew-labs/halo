@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Review pull request and branch diffs for Halo convention violations, unnecessary complexity, and functional correctness. Use for Codex GitHub review, `codex review`, and requested code reviews. Do not use when implementing or refactoring.
+description: Review pull request and branch diffs for Halo rule violations, unnecessary complexity, and functional correctness. Use for Codex GitHub review, `codex review`, and requested code reviews. Do not use when implementing or refactoring.
 ---
 
 # Code review
@@ -9,13 +9,13 @@ Write one or two short paragraphs as the review body. Say what the change does a
 
 Leave inline comments only for high-priority issues, on the exact lines that need to change. Skip the comment if the summary already covers it and no line needs an edit. Flag only issues the change introduces. Do not flag pre-existing mismatches that the change does not expand. Leave formatting, lint, and typecheck to CI.
 
-Treat a new handbook violation as P1. Treat a new package, authority, or persistent-state boundary that contradicts the handbook as P0. Treat a correctness failure as P1, and as P0 when the change does not fulfill a requirement or will fail in an expected scenario. Treat a simplicity finding as P1 only when the diff adds an abstraction, file, duplicate path, or barrel that can be removed without changing behavior.
+Treat a new applicable rule violation as P1. Treat a new package, authority, or persistent-state boundary that contradicts an applicable rule as P0. Treat a correctness failure as P1, and as P0 when the change does not fulfill a requirement or will fail in an expected scenario. Treat a simplicity finding as P1 only when the diff adds an abstraction, file, duplicate path, or barrel that can be removed without changing behavior.
 
-Cite a file path, line, and symbol in each inline comment. For a conventions finding, also cite the handbook page and do not restate the page. For a simplicity finding, say exactly how to simplify and give a concrete alternative.
+Cite a file path, line, and symbol in each inline comment. For a rule finding, also cite its RNNNN ID and source file; read the full rule before judging a violation. For a simplicity finding, say exactly how to simplify and give a concrete alternative.
 
-## Conventions
+## Repository rules
 
-The handbook at `.agents/skills/conventions/` is the source of truth. Start at `SKILL.md`. Read only the reference pages that apply to the changed files.
+Run `pnpm semvariant context <changed paths>` or `pnpm semvariant context --diff <base>` from the repository root. Read the applicable full rules with `pnpm semvariant show <IDs>` or add `--full` to the context command. Canonical rules live in `tools/semvariant/rules/`; generated `AGENTS.md` files are their directory-scoped title indexes.
 
 ## Simplicity
 
