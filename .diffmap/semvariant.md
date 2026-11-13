@@ -26,7 +26,9 @@ pnpm semvariant check
 
 `context` unions rules from each selected path's ancestors and deduplicates them. Selecting a directory does not select all its descendants. The default output contains titles; `--full` adds complete records. Git selection includes deleted paths and both sides of renames. Untracked files require explicit paths or staging. `search` matches any supplied substring, case-insensitively; `show` accepts multiple case-insensitive IDs.
 
-Generation repairs missing or changed projections, removes stale generator-owned guides, and refuses to overwrite authored guides. Guide paths must stay inside the repository, exist, and contain no symlink components or excluded directories (`.git`, `node_modules`, `data`). The generator never follows symlinks while discovering stale guides. Authored guides outside the projection remain untouched.
+Generation repairs missing or changed projections, removes stale generator-owned guides, and refuses to overwrite authored guides. Guide paths must stay inside the repository, exist, and contain no symlink components or excluded directories (`.git`, `node_modules`, `data`). Stale-guide discovery uses Git's tracked and unignored untracked files, honoring nested ignore rules and exceptions. It skips nested repositories and worktrees and never follows symlinks. Authored guides outside the projection remain untouched.
+
+Rule-title validation ignores headings inside backtick or tilde fences. Text reads normalize CRLF to LF, so Windows checkouts retain generated-guide ownership and do not report line-ending-only drift.
 
 All retrieval commands require valid rule records and current projections. `generate` is the repair command. `check` checks structure and drift; agents judge semantic compliance using complete rule bodies. Consolidation is manual: search, edit or merge the owning rules, remove retired sources, and regenerate.
 

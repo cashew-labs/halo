@@ -51,7 +51,7 @@ function inspect(target: string) {
 
 function read(target: string) {
   return filesystem(`Cannot read ${target}`, () =>
-    fs.readFileSync(target, "utf8"),
+    fs.readFileSync(target, "utf8").replaceAll("\r\n", "\n"),
   );
 }
 
@@ -129,15 +129,31 @@ function parseRule(filename: string, content: string): Rule | SemvariantError {
     });
   }
   const body = content.slice(frontmatter[0].length);
-  const headings = [...body.matchAll(/^#(?:[ \t]+(.*))?\r?$/gm)];
-  if (headings.length !== 1 || !headings[0]?.[1]?.trim()) {
+  const headings: string[] = [];
+  let fence: string | undefined;
+  for (const line of body.split(/\r?\n/)) {
+    if (fence) {
+      const closing = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/)?.[1];
+      if (closing && closing[0] === fence[0] && closing.length >= fence.length)
+        fence = undefined;
+      continue;
+    }
+    const opening = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (opening && !(opening[1]![0] === "`" && opening[2]!.includes("`"))) {
+      fence = opening[1];
+      continue;
+    }
+    const heading = line.match(/^ {0,3}#(?:[ \t]+(.*))?$/);
+    if (heading) headings.push(heading[1]?.trim() ?? "");
+  }
+  if (headings.length !== 1 || !headings[0]) {
     return new SemvariantError({
       detail: `${filename}: expected exactly one nonempty H1 title`,
     });
   }
   return {
     ruleId: filename.slice(0, -3),
-    title: headings[0][1].trim(),
+    title: headings[0],
     guides,
     content,
   };
@@ -289,21 +305,37 @@ function planGuides(rules: readonly Rule[]) {
   );
 }
 
-function findGuides(directory: string): string[] | SemvariantError {
+function findGuides(root: string): string[] | SemvariantError {
+  const files = git(root, [
+    "ls-files",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "-z",
+    "--",
+    "AGENTS.md",
+    "**/AGENTS.md",
+  ]);
+  if (files instanceof Error) return files;
   const guides: string[] = [];
-  const entries = filesystem(`Cannot list ${directory}`, () =>
-    fs.readdirSync(directory, { withFileTypes: true }),
-  );
-  if (entries instanceof Error) return entries;
-  for (const entry of entries) {
-    if (entry.isSymbolicLink() || excludedDirectories.has(entry.name)) continue;
-    const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      const nested = findGuides(target);
-      if (nested instanceof Error) return nested;
-      guides.push(...nested);
-    } else if (entry.isFile() && entry.name === "AGENTS.md")
-      guides.push(target);
+  candidate: for (const file of new Set(files.split("\0"))) {
+    if (!file) continue;
+    let target = root;
+    for (const component of file.split("/")) {
+      if (excludedDirectories.has(component)) continue candidate;
+      target = path.join(target, component);
+      const stat = inspect(target);
+      if (stat instanceof Error) return stat;
+      if (!stat || stat.isSymbolicLink()) continue candidate;
+      if (stat.isDirectory()) {
+        const nestedRepository = inspect(path.join(target, ".git"));
+        if (nestedRepository instanceof Error) return nestedRepository;
+        if (nestedRepository) continue candidate;
+      }
+    }
+    const stat = inspect(target);
+    if (stat instanceof Error) return stat;
+    if (stat?.isFile()) guides.push(target);
   }
   return guides.toSorted();
 }
