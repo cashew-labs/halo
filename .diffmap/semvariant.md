@@ -30,6 +30,12 @@ Generation repairs missing or changed projections, removes stale generator-owned
 
 All retrieval commands require valid rule records and current projections. `generate` is the repair command. `check` checks structure and drift; agents judge semantic compliance using complete rule bodies. Consolidation is manual: search, edit or merge the owning rules, remove retired sources, and regenerate.
 
+## Architecture guidance and migration status
+
+R0027 requires thin app hosts over independently testable service packages. R0031 makes hosts responsible for concrete effectful dependencies, R0030 distinguishes those resources from package-owned internal services, and R0041/R0046 require package-level construction and tests without app internals or app entrypoints.
+
+These are architectural requirements, not claims that every current app already complies. The workspace server has a reusable package and direct package fixtures, but still constructs some concrete effectful dependencies internally. Browser and Electron renderers share `packages/web`, whose independent tests are currently helper-focused. Control-plane business logic remains under `apps/control-plane`. This guidance change does not refactor those apps; their package boundaries, capability wiring, and test coverage remain follow-up work.
+
 ## Verification
 
 `pnpm check-affected` always runs `semvariant:check` before Turbo's affected checks, so guidance-only changes are validated. This checks record integrity, projection drift, and the CLI's types, lint, and formatting. Generated `AGENTS.md` files are excluded from formatting because the generator owns their bytes.

@@ -31,11 +31,11 @@ Edit the owning rule files, then run `pnpm semvariant generate` and `pnpm semvar
 - R0024: Obtain approval before changing review gates, branch protection, or access.
 - R0025: Use the orb services, ADC, and development-only preview login in Amp orbs.
 - R0026: Create packages only for cohesive consumer contracts.
-- R0027: Keep apps, reusable packages, and infrastructure in their dependency layers.
+- R0027: Keep apps as thin hosts for independently testable service packages.
 - R0028: Expose one supported main package entry instead of its internal file tree.
 - R0029: Route all clients through the same owning product operations.
 - R0030: Construct shared dependencies at their lowest common lifetime owner.
-- R0031: Have hosts supply narrow environment capabilities without import-time effects.
+- R0031: Have hosts supply concrete effectful dependencies through narrow service-owned interfaces.
 - R0032: Gate development control and test setup without granting product consumers extra authority.
 - R0033: Keep mutable state on instances and workspace persistence shared by humans and agents.
 - R0034: Derive consumer-visible state from streams instead of synchronizing duplicate views.
@@ -45,7 +45,7 @@ Edit the owning rule files, then run `pnpm semvariant generate` and `pnpm semvar
 - R0038: Return expected failures with errore and convert exceptions only at external boundaries.
 - R0039: Use temp tests by default and add durable tests only when authorized.
 - R0040: Keep durable tests for meaningful consumer behavior and realistic regressions.
-- R0041: Test package APIs and app UI or protocols at their supported consumer boundary.
+- R0041: Test service behavior independently through package APIs and host wiring through app surfaces.
 - R0042: Locate and name tests by the consumer boundary they exercise.
 - R0043: Build tests on one realistic native fixture with real internal dependencies.
 - R0044: Assert consumer-visible outcomes rather than internal wiring or UI geometry.
