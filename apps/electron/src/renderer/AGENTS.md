@@ -10,4 +10,4 @@ Edit the owning rule files, then run `pnpm semvariant generate` and `pnpm semvar
 
 ## Rules
 
-- R0052: Build application UI with Maui components, tokens, and styles.
+- R0052: Load the Maui skill when building or changing application UI.

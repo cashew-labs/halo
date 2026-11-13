@@ -13,10 +13,10 @@ Edit the owning rule files, then run `pnpm semvariant generate` and `pnpm semvar
 - R0001: Apply relevant semvariant rules before editing or reviewing a change.
 - R0002: Use the errore skill when changing TypeScript failure handling.
 - R0003: Use the code-review skill for requested pull request or branch reviews.
-- R0004: Use the logos skill and SVGL assets for product or integration marks.
+- R0004: Load the logos skill when adding third-party product or integration marks.
 - R0005: Follow Orwell's six writing rules for prose meant for humans.
 - R0006: Run affected checks during iteration and focused E2Es when the change needs them.
-- R0007: Use the Diffmap commands and skill for specs, walkthroughs, and requested comparisons.
+- R0007: Load the Diffmap comparison skill for explicitly requested viewer comparisons.
 - R0008: Use the release and promotion PR workflows for staging and production.
 - R0009: Keep one accurate commit-specific hidden test report in each PR description.
 - R0010: Summarize completed work with source-checked call stacks and the next small step.
@@ -25,7 +25,7 @@ Edit the owning rule files, then run `pnpm semvariant generate` and `pnpm semvar
 - R0013: Keep temporary work under tmp/ and clean it up without disturbing active work.
 - R0014: Use the shared local development stack and host controls in Cursor Cloud.
 - R0015: Keep Entire checkpoints in the private checkpoint repository.
-- R0018: Read the Entire guide, retrieve prior decisions, and verify them against current source.
+- R0018: Load the generated Entire guide before substantive work.
 - R0020: Keep Brain egress disabled except for the worker’s explicit private sync.
 - R0023: Keep GitHub and CI authoritative while checking and resolving Entire review findings.
 - R0024: Obtain approval before changing review gates, branch protection, or access.

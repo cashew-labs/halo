@@ -1,6 +1,6 @@
 # Semvariant repository guidance
 
-Halo uses the rule system from [chet-gpt](https://github.com/ccorcos/chet-gpt), named `semvariant` here. The CLI lives in `tools/semvariant/` and runs directly with the repository's Node version. No service or product runtime is involved.
+Semvariant manages Halo’s directory-scoped repository guidance. The CLI lives in `tools/semvariant/` and runs directly with the repository's Node version. No service or product runtime is involved.
 
 ## Sources and projections
 
