@@ -1,0 +1,10 @@
+{
+  "extends": "../../packages/typescript-config/base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node"],
+    "lib": ["ES2023", "ESNext.Disposable"]
+  },
+  "include": ["*.ts"]
+}

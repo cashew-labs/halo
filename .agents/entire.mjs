@@ -35,7 +35,7 @@ function check(name, action) {
   } catch {
     results[name] = {
       state: "unavailable",
-      detail: "See recovery commands in AGENTS.md",
+      detail: "Run pnpm semvariant show R0022 for recovery commands",
     };
   }
   console.log(`${name}: ${results[name].state} — ${results[name].detail}`);

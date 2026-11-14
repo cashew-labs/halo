@@ -3,6 +3,8 @@
   "printWidth": 80,
   "ignorePatterns": [
     "tools/oxlint/anti-slop/**",
-    "tools/oxlint/no-unused-exports/**"
+    "tools/oxlint/no-unused-exports/**",
+    "AGENTS.md",
+    "**/AGENTS.md"
   ]
 }
