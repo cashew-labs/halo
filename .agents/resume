@@ -27,4 +27,24 @@ fs.writeFileSync(
 EOF
 fi
 
+# Retire state left by older warm orbs without deleting checkpoints or memories.
+if command -v amp >/dev/null; then
+  services="$(amp orb service list)"
+  if grep -q '^amp-svc-entire-memory\.service ' <<< "$services"; then
+    amp orb service stop entire-memory
+  fi
+fi
+if [[ -f .entire/settings.local.json ]]; then
+  node --input-type=module <<'EOF'
+import fs from "node:fs";
+
+const file = ".entire/settings.local.json";
+const settings = JSON.parse(fs.readFileSync(file, "utf8"));
+if (settings.enabled !== false) {
+  settings.enabled = false;
+  fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
+}
+EOF
+fi
+
 echo "Orb ready"
