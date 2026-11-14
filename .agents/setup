@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Bash's time keyword also reports failed steps before set -e exits.
+TIMEFORMAT='==> Step took %3R seconds'
+
 if ! command -v Xvfb >/dev/null || ! command -v pdftotext >/dev/null; then
   echo "==> Installing system dependencies"
   sudo apt-get update -qq
@@ -25,99 +28,6 @@ export PATH="$HOME/.local/bin:$PATH"
 hash -r
 node --version
 
-echo "==> Installing Entire and its Amp integration"
-(
-  install_dir="$(mktemp -d)"
-  trap 'rm -rf "$install_dir"' EXIT
-
-  go_home="$HOME/.local/go-1.27.3"
-  if [[ ! -x "$go_home/bin/go" ]]; then
-    curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o "$install_dir/go.tar.gz"
-    echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  $install_dir/go.tar.gz" | sha256sum -c -
-    mkdir -p "$go_home"
-    tar -xzf "$install_dir/go.tar.gz" -C "$go_home" --strip-components=1
-  fi
-  export GOMAXPROCS=4
-
-  entire_version="v0.12.0"
-  entire_patch="$PWD/.agents/patches/entire-cli.patch"
-  entire_patch_hash="$(sha256sum "$entire_patch" | cut -d ' ' -f 1)"
-  entire_home="$HOME/.local/share/entire/${entire_version}-${entire_patch_hash}"
-  if [[ ! -x "$entire_home/entire" || ! -x "$entire_home/git-remote-entire" ]]; then
-    entire_source="$("$go_home/bin/go" mod download -json "github.com/entireio/cli@${entire_version}" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).Dir')"
-    cp -R "$entire_source" "$install_dir/cli"
-    chmod -R u+w "$install_dir/cli"
-    # Protect Antigravity's hooks file, not user work in the shared .agents directory.
-    git -C "$install_dir/cli" apply "$entire_patch"
-    (
-      cd "$install_dir/cli"
-      "$go_home/bin/go" test -p 4 ./cmd/entire/cli -run 'TestFilterAndNormalizePaths|TestAgentAdd_LocalPreservesProjectSettings' -count=1
-      mkdir -p "$entire_home"
-      "$go_home/bin/go" build -p 4 -trimpath \
-        -ldflags '-s -w -X github.com/entireio/cli/cmd/entire/cli/versioninfo.Version=0.12.0+halo.agents -X github.com/entireio/cli/cmd/entire/cli/experimental.Visible=false' \
-        -o "$entire_home/" ./cmd/entire ./cmd/git-remote-entire
-    )
-  fi
-  ln -sfn "$entire_home/entire" "$HOME/.local/bin/entire"
-  ln -sfn "$entire_home/git-remote-entire" "$HOME/.local/bin/git-remote-entire"
-
-  amp_version="v0.0.0-20261020003721-23c64f2861dd"
-  amp_patch="$PWD/.agents/patches/entire-agent-amp.patch"
-  amp_patch_hash="$(sha256sum "$amp_patch" | cut -d ' ' -f 1)"
-  # Key the binary by source and patch so warm snapshots cannot keep an old build.
-  amp_binary="$HOME/.local/share/entire-agent-amp/${amp_version}-${amp_patch_hash}/entire-agent-amp"
-  if [[ ! -x "$amp_binary" ]]; then
-    amp_source="$("$go_home/bin/go" mod download -json "github.com/entireio/external-agents/agents/entire-agent-amp@${amp_version}" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).Dir')"
-    cp -R "$amp_source" "$install_dir/amp"
-    chmod -R u+w "$install_dir/amp"
-    # The pinned upstream scanner does not recognize apply_patch inputs/results.
-    git -C "$install_dir/amp" apply "$amp_patch"
-    mkdir -p "$(dirname "$amp_binary")"
-    (
-      cd "$install_dir/amp"
-      "$go_home/bin/go" test ./...
-      "$go_home/bin/go" build -trimpath -o "$amp_binary" ./cmd/entire-agent-amp
-    )
-  fi
-  ln -sfn "$amp_binary" "$HOME/.local/bin/entire-agent-amp"
-
-  # Use raw conversation text, preserve legacy caches, and upload off-checkout
-  # memories without rebuilding their stores against the current HEAD.
-  brain_version="v0.4.0"
-  brain_patch="$PWD/.agents/patches/entire-brain.patch"
-  brain_patch_hash="$(sha256sum "$brain_patch" | cut -d ' ' -f 1)"
-  brain_binary="$HOME/.local/share/entire-brain/${brain_version}-${brain_patch_hash}/entire-brain"
-  if [[ ! -x "$brain_binary" ]]; then
-    brain_source="$("$go_home/bin/go" mod download -json "github.com/entireio/entire-brain@${brain_version}" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).Dir')"
-    cp -R "$brain_source" "$install_dir/brain"
-    chmod -R u+w "$install_dir/brain"
-    git -C "$install_dir/brain" apply "$brain_patch"
-    mkdir -p "$(dirname "$brain_binary")"
-    (
-      cd "$install_dir/brain"
-      # These isolated fixtures simulate routed discovery and local HTTP sync.
-      # Keep the orb's real no-egress policy out of only the test subprocess.
-      env -u ENTIRE_BRAIN_NO_EGRESS -u ENTIRE_BRAIN_LOCAL_ONLY \
-        "$go_home/bin/go" test -p 4 ./internal/cli -run '^TestMemoriesSync|TestHostedSync|TestKeepHostedFact|TestNewCommitReachability|TestWatchTickSkipsTranscriptSweep|TestWatchConsolidationRefreshSkipsTranscriptSweep' -count=1
-      "$go_home/bin/go" build -p 4 -trimpath -ldflags '-s -w -X main.version=0.4.0+halo.raw' -o "$brain_binary" ./cmd/entire-brain
-    )
-  fi
-  entire plugin install "$brain_binary" --yes --force --no-deps
-)
-
-# Install only binaries here. Private checkpoints, Brain data and user logins
-# must not enter the shared setup snapshot; resume starts the memory worker.
-installed="$(entire graph version 2>/dev/null || true)"
-if [[ "$installed" != "v0.6.0" ]]; then
-  entire plugin install graph --pin v0.6.0 --yes --force
-fi
-
-# Validate stored checkpoints, not just hook installation or commit trailers.
-node .agents/verify-entire.mjs
-
-# Headless orbs have no OS keyring. Authenticate interactively after startup;
-# never include a user's login in the shared setup snapshot.
-# Classic Amp also needs an explicit opt-in to load project plugins.
 # Preserve Bash's login-file precedence instead of shadowing an existing file.
 login_profile="$HOME/.profile"
 for candidate in "$HOME/.bash_profile" "$HOME/.bash_login"; do
@@ -128,9 +38,6 @@ for candidate in "$HOME/.bash_profile" "$HOME/.bash_login"; do
 done
 # Non-interactive login shells do not read the .bashrc that pnpm setup updates.
 for setting in \
-  'export ENTIRE_TOKEN_STORE=file' \
-  'export ENTIRE_BRAIN_NO_EGRESS=1' \
-  'export PLUGINS=all' \
   'export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"' \
   'export PATH="$PNPM_HOME/bin:$PNPM_HOME:$HOME/.local/bin:$PATH"'; do
   if ! grep -Fqx "$setting" "$login_profile" 2>/dev/null; then
@@ -141,15 +48,27 @@ done
 # Corepack wraps pnpm in a Node shim and does not install pnpm 12's native binary.
 PNPM_VERSION="$(node -p "require('./package.json').packageManager.slice('pnpm@'.length)")"
 export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
-export PATH="$PNPM_HOME:$PNPM_HOME/bin:$PATH"
+export PATH="$PNPM_HOME/bin:$PNPM_HOME:$PATH"
 
-echo "==> Installing pnpm ${PNPM_VERSION}"
-curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION="$PNPM_VERSION" PNPM_HOME="$PNPM_HOME" sh -
+# Check outside the workspace so pnpm cannot auto-switch to packageManager's version.
+installed="$(cd "$HOME" && pnpm --version 2>/dev/null || true)"
+if [[ "$installed" != "$PNPM_VERSION" ]]; then
+  echo "==> Installing pnpm ${PNPM_VERSION} (${SECONDS}s elapsed)"
+  time curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION="$PNPM_VERSION" PNPM_HOME="$PNPM_HOME" sh -
+fi
 hash -r
 pnpm --version
 
-echo "==> Installing workspace dependencies"
+echo "==> Installing workspace dependencies (${SECONDS}s elapsed)"
 time pnpm install --frozen-lockfile
 
-echo "==> Installing Playwright Chromium"
-pnpm exec playwright install --with-deps chromium
+echo "==> Checking Playwright system dependencies (${SECONDS}s elapsed)"
+# Playwright 1.62's dry run exits nonzero if apt would install packages.
+# Avoid apt-get update on warm snapshots without duplicating its package list.
+if ! pnpm exec playwright install-deps --dry-run chromium; then
+  time pnpm exec playwright install-deps chromium
+fi
+
+echo "==> Installing Playwright Chromium (${SECONDS}s elapsed)"
+time pnpm exec playwright install chromium
+echo "==> Setup completed in ${SECONDS}s"

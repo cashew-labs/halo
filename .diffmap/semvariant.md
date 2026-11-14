@@ -6,9 +6,9 @@ Semvariant manages Halo’s directory-scoped repository guidance. The CLI lives 
 
 The 64 initial `tools/semvariant/rules/RNNNN.md` files contain the migrated root guidance, conventions handbook, workspace-server Turso guidance, and rule-authoring guidance. Each file has only a `guides` list in its frontmatter, one H1 claim, and a freeform Markdown body. IDs are stable references, not priorities.
 
-`guides` selects existing repository directories. Generation writes a title index to each directory's `AGENTS.md`. A rule applies there and below, together with ancestor rules. General code guidance is repository-wide, including root tools and agent scripts; UI, Turso, Entire maintenance, and rule-authoring guidance has narrower scopes. The generated prelude explains retrieval, inheritance, and editing.
+`guides` selects existing repository directories. Generation writes a title index to each directory's `AGENTS.md`. A rule applies there and below, together with ancestor rules. General code guidance is repository-wide, including root tools and agent scripts; UI, Turso, and rule-authoring guidance has narrower scopes. The generated prelude explains retrieval, inheritance, and editing.
 
-The conventions skill and reference pages are removed. The semvariant skill supplies the retrieval and editing workflow. Code-review and Cursor review instructions retrieve full rules and cite their IDs. Entire's generated `.entire/agent-guide.md` remains separate; R0018 directs agents to read it.
+The conventions skill and reference pages are removed. The semvariant skill supplies the retrieval and editing workflow. Code-review and Cursor review instructions retrieve full rules and cite their IDs.
 
 ## CLI
 
