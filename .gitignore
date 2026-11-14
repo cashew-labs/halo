@@ -51,6 +51,9 @@ __pycache__/
 .alchemy/
 infra/.alchemy/
 
+# Retired Entire integration: preserve local data without tracking it.
+.entire/
+
 # Amp orb portal metadata
 .amp/portals/*
 

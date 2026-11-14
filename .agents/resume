@@ -2,9 +2,6 @@
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:${PNPM_HOME:-$HOME/.local/share/pnpm}/bin:$PATH"
-export ENTIRE_TOKEN_STORE=file
-export ENTIRE_BRAIN_NO_EGRESS=1
-export PLUGINS=all
 
 if [[ -n "${HALO_GCP_SA_KEY:-}" ]]; then
   mkdir -p "$HOME/.config/gcloud"
@@ -30,31 +27,4 @@ fs.writeFileSync(
 EOF
 fi
 
-# Restore a saved per-user Entire login from the personal ENTIRE_LOGIN secret.
-# Keep an existing login: the CLI may have refreshed it since the secret was saved.
-if [[ -n "${ENTIRE_LOGIN:-}" && ! -s "$HOME/.config/entire/tokens.json" ]]; then
-  mkdir -p "$HOME/.config/entire"
-  chmod 700 "$HOME/.config/entire"
-  node --input-type=module <<'EOF'
-import fs from "node:fs";
-
-const login = JSON.parse(process.env.ENTIRE_LOGIN);
-const dir = `${process.env.HOME}/.config/entire`;
-for (const name of ["tokens", "contexts"])
-  fs.writeFileSync(`${dir}/${name}.json`, JSON.stringify(login[name]), {
-    mode: 0o600,
-  });
-EOF
-fi
-
-# Exact snapshots skip setup. Restore hooks, then test capture and plugin versions.
-if ! entire agent add amp --local || ! node .agents/entire.mjs; then
-  echo "Entire startup verification failed. Run .agents/setup, then .agents/resume to retry." >&2
-  exit 1
-fi
-
-# Amp supervises this foreground worker; systemd is not available in orbs.
-# Network/indexing work stays outside resume's ten-second readiness window.
-amp orb service start entire-memory --command 'node .agents/entire.mjs --watch'
-
-echo "Orb ready (offline capture and plugin versions verified; memory worker starting)"
+echo "Orb ready"
