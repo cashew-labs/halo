@@ -68,7 +68,7 @@ flowchart LR
 @@ -162,7 +162,20 @@
  		}
  	}, [isOpen])
- 
+
 +	// Closing before the first frame can skip transitionend entirely.
  	useEffect(() => {
 +		if (phase !== "out" || isOpen) return
