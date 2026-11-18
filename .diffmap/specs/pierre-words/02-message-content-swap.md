@@ -55,12 +55,17 @@ I styled with CSS instead of Words' `components` hooks for two reasons: hooks re
 ## Verification
 
 - `pnpm --filter @get-halo/web typecheck`, `lint`, `format:check`, and its 11 unit tests pass.
+- Halo's Electron end-to-end tests for Markdown pass against the packaged app with Words. They stream a 14-row table from a scripted model, click a link in a lower row during and after streaming at desktop and phone widths, and send a user message with links, inline code, a list, and a code fence.
 - The browser harness rendered both versions in light and dark themes, static and streaming, without console errors.
-- Not done: streaming a reply in the running Electron app. This machine has no Google Cloud credentials for the model. Do it before merging.
+
+:::gallery side-by-side
+![Streamed table in the Electron app](media/message-content-swap/app-long-table.png)
+![User message in the Electron app](media/message-content-swap/app-user-markdown.png)
+:::
 
 ## Before merging
 
-- Stream a long reply with tables and several code fences in the Electron app.
+- Stream a long reply with several code fences against a real model in the Electron app. The end-to-end tests cover tables, links, and user messages, but not highlighted code while it streams.
 - Decide whether Pierre's code colors in chat are acceptable, or ask Maui to export its theme in `@pierre/highlights` form.
 - Bump `@pierre/diffs` once it accepts `@pierre/highlights` 0.5, so only one highlighter ships.
 

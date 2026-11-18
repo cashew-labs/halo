@@ -16,8 +16,9 @@
 3. Rewrote `MessageContent` on Words with the same props, so `AgentPane` did not change, and removed `streamdown` and `@streamdown/code`.
 4. Rendered the old and new `MessageContent` side by side in a browser harness with Maui, streamed a typical agent reply into both, and timed each chunk, full mounts, and thread re-renders.
 5. Built the web app before and after to compare bundle output.
+6. Ran Halo's Electron end-to-end tests for Markdown, which stream a reply from a scripted model into the packaged app. Both pass.
 
-I could not chat in the running Electron app: this machine has no Google Cloud credentials, and the workspace server needs them to reach the model. The harness renders the real component with Maui's provider, theme, and styles, but someone should still stream a reply in the app before merging.
+I could not chat with a real model: this machine has no Google Cloud credentials. Someone should stream a reply with code fences in the app before merging.
 
 ## Results at a glance
 
