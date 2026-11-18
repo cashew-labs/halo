@@ -1,29 +1,36 @@
 {
-  "version": 1,
+  "version": 2,
   "skills": {
     "code-walkthrough": {
       "source": "tanishqkancharla/tkstack",
       "sourceType": "github",
       "skillPath": "skills/code-walkthrough/SKILL.md",
-      "computedHash": "17e97059ee4fe1455d82234c4f09cc797ffb405b14c6b59a2ca64c3a04731369"
+      "computedHash": ""
     },
     "errore": {
       "source": "remorses/errore",
       "sourceType": "github",
       "skillPath": "skills/errore/SKILL.md",
-      "computedHash": "c8c58707dfee91f71d479431d3ab3d64d63f824c22760444e7ae08b6397fd378"
+      "computedHash": ""
     },
     "generate-diffmap": {
       "source": "tanishqkancharla/diffmap",
       "sourceType": "github",
       "skillPath": "skills/generate-diffmap/SKILL.md",
-      "computedHash": "0b2b910b6da35907831e3389ede3c68a67cbbc0e5cda38cf77e4ef126a2a7472"
+      "computedHash": ""
+    },
+    "generate-product-doc": {
+      "source": "tanishqkancharla/diffmap",
+      "commit": "d516f8aa2e04cad02a748e56e777b6dd16e6504f",
+      "sourceType": "github",
+      "skillPath": "skills/generate-product-doc/SKILL.md",
+      "computedHash": "4e621df2f4724a79ad629320ac670d20bb77dad35ddc5ad5f063e0c3b7a56498"
     },
     "maui": {
       "source": "tanishqkancharla/maui",
       "sourceType": "github",
       "skillPath": "skills/maui/SKILL.md",
-      "computedHash": "4a8f3b3b9ca649e8290279f3fbe9d0899368a1b8ced1d884b5d7954710a400c6"
+      "computedHash": "4ac5cde000d53e923a229ae9283b28ae5714fe5655eb935ddb4efdac731d1ae0"
     }
   }
 }
