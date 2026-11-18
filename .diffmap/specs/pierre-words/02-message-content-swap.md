@@ -65,6 +65,9 @@ I styled with CSS instead of Words' `components` hooks for two reasons: hooks re
 
 ## Before merging
 
+- Decide how the browser app runs WebAssembly. Its Content Security Policy (`script-src 'self'` in `[[apps/control-plane/src/server/controlPlaneHttp.ts#L102]]`) blocks the `new WebAssembly.Module` call Words makes on import. The [cover](README.md) lists the options.
+- Accept losing raw HTML in messages, or convert the tags Halo needs before rendering.
+
 - Stream a long reply with several code fences against a real model in the Electron app. The end-to-end tests cover tables, links, and user messages, but not highlighted code while it streams.
 - Decide whether Pierre's code colors in chat are acceptable, or ask Maui to export its theme in `@pierre/highlights` form.
 - Bump `@pierre/diffs` once it accepts `@pierre/highlights` 0.5, so only one highlighter ships.

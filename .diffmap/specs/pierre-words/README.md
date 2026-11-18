@@ -2,7 +2,15 @@
 
 [Je Xia's post](https://x.com/jexia_/status/2123069061311627332) introduces **Words** (`@pierre/words`), a Markdown renderer from Pierre written in WebAssembly Text. It is built for streamed agent output, claims to be 20x faster than Streamdown, and ships a React `<Markdown>` component with almost the same props as Streamdown's. Halo renders every chat message with Streamdown in `[[packages/web/src/main/agent/MessageContent.tsx]]`, so the question is whether Words should replace it.
 
-**Take: yes, adopt it for chat messages, with an exact version pin.** On Halo's own component and content, Words streams a reply 3 to 4.5 times faster than Streamdown, keeps up with the stream instead of trailing it, re-renders a 30-message thread in about 4 ms instead of 60 to 100 ms, and looks nearly the same under Maui. The swap touches one file and drops two dependencies. The risk is youth: version 0.2.2, first published a week ago.
+**Take: worth adopting, but not merged as is. The browser app's security policy must allow WebAssembly first.** On Halo's own component and content, Words streams a reply 3 to 4.5 times faster than Streamdown, keeps up with the stream instead of trailing it, re-renders a 30-message thread in about 4 ms instead of 60 to 100 ms, and looks nearly the same under Maui. The swap touches one file and drops two dependencies.
+
+Review of the PR turned up a blocker. Words compiles its WebAssembly as soon as the module loads, and the browser app's Content Security Policy is `script-src 'self'` without `'wasm-unsafe-eval'`. In the browser app, loading the chunk that holds `MessageContent` would throw, not just chat rendering. Electron sets no such policy, which is why its tests pass. Halo's code viewer already keeps Shiki in the browser for this reason. The options:
+
+1. Add `'wasm-unsafe-eval'` to the control plane's `script-src`. It allows compiling WebAssembly, not running JavaScript strings through `eval`, but it is a security policy change for someone to approve. This is my pick: it also lets the code viewer use Pierre's faster highlighter in the browser.
+2. Use Words in Electron and keep Streamdown in the browser. This means two renderers to style and test.
+3. Wait, and keep Streamdown.
+
+Raw HTML is the second cost to accept. Streamdown rendered sanitized HTML, so `<br>`, `<kbd>`, `<sub>`, and `<details>` worked in messages. Words drops raw HTML, and the inside of a `<details>` block vanishes with it. Like Streamdown, Words strips `javascript:` links and event handlers, so security doesn't get worse.
 
 :::gallery side-by-side
 ![Streamdown (today)](media/message-content-swap/streamdown-light.png)
@@ -42,6 +50,8 @@ I could not chat with a real model: this machine has no Google Cloud credentials
 
 ## What doesn't, or costs something
 
+- **Blocked in the browser app.** The browser app's Content Security Policy forbids compiling WebAssembly; see the options above.
+- **No raw HTML.** Tags such as `<br>`, `<kbd>`, and `<details>` that Streamdown rendered after sanitizing now disappear.
 - **Young package.** Six releases since November 11. Halo's minimum-release-age policy blocks it, so the change adds a `minimumReleaseAgeExclude` entry for `@pierre/words@0.2.2`.
 - **Styling through attributes.** Words' stylesheet uses `[data-markdown]` selectors that outrank Maui's prose rules, so `MessageContent` overrides them with higher-specificity selectors. Those attribute names are output, not a documented contract.
 - **Hooks are string transforms.** `components` hooks take and return HTML, so Maui's React `CodeBlock` and `Code` cannot plug in; any hook also turns off Words' fast path for an open code fence. The swap styles elements with CSS instead.
