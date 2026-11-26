@@ -1,5 +1,6 @@
 /* oxlint-disable react/iframe-missing-sandbox -- The inert extension preview keeps its origin for API and storage access, like ExtensionView. */
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Button as AriaButton } from "react-aria-components";
 import type { AppAccessList } from "@get-halo/client";
 import * as errore from "errore";
 import {
@@ -15,6 +16,7 @@ import {
   MenuTrigger,
   backgroundColor,
   borderColor,
+  buttonStyles,
   colors,
   flex,
   focusRing,
@@ -205,7 +207,7 @@ export function ShareAppForm({
   const body = useStyles(styles.body);
   const heading = useStyles(styles.heading);
   const row = useStyles(styles.row);
-  const picker = useStyles(styles.picker);
+  const picker = useStyles(buttonStyles.root(), styles.picker);
   const pickerField = useStyles(styles.pickerField);
   const people = useStyles(styles.people);
   const banner = useStyles(styles.banner);
@@ -323,7 +325,7 @@ export function ShareAppForm({
               setModel((previous) => ({ ...previous, expanded }))
             }
           >
-            <Button
+            <AriaButton
               className={picker}
               aria-label={`Access: ${model.access === "public" ? "Public" : "Restricted"}`}
               isDisabled={locked}
@@ -335,7 +337,7 @@ export function ShareAppForm({
               )}
               <AccessLabel access={model.access} />
               <DoubleChevronUpDown size="sm" />
-            </Button>
+            </AriaButton>
             <Menu
               onAction={(key) => {
                 if (key === "public" || key === "restricted") setAccess(key);
@@ -715,7 +717,7 @@ const styles = {
     height: "auto",
     minHeight: 52,
     justifyContent: "start",
-    "& > svg:first-child": { alignSelf: "start", marginTop: 1 },
+    "& > svg": { alignSelf: "start", marginTop: 1 },
     "& > svg:last-child": { marginLeft: "auto" },
   }),
   row: style(flex({ alignItems: "start", gap: 3 }), {
