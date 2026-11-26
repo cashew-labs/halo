@@ -6,7 +6,7 @@ Research comparing Halo's sandboxing layers with [tobi/wrapvm](https://github.co
 
 Do not adopt wrapvm. It is about 3,500 lines of packaging: one Containerfile for a Linux desktop, one Smolfile, and a 49-line launcher. Halo already ships nearly the same desktop, and its version has the per-user authentication that wrapvm does not need. Two ideas are worth taking, both from smolvm rather than from wrapvm's image:
 
-1. **Swap in credentials at the boundary.** The guest sees a placeholder secret, and the host adds the real header only on requests to named hosts. This answers the open TODO, "Remove workspace VM access to the OpenAI API key" ([[TODO.md#L6]]). A proxy on the workspace host can do this without smolvm.
+1. **Swap in credentials at the boundary.** The guest sees a placeholder secret, and the host adds the real header only on requests to named hosts. For Halo the swap has to happen outside the workspace VM, because the VM runs untrusted code and must not hold shared provider keys ([[apps/control-plane/README.md#L107-L113]]). A proxy inside the VM would still hold the real key. The control plane is the right place: it already plans to take over inference, and the VM would send requests with a placeholder or its workspace gateway token. That resolves the open TODO, "Remove workspace VM access to the OpenAI API key" ([[TODO.md#L6]]), and needs no smolvm.
 2. **Per-app microVMs with checkpoints and copy-on-write branches**, as a later option for the app sandbox. See [microVM app sandbox](#microvm-app-sandbox).
 
 Smaller items: agent-desktop's interaction rules (see [agent-desktop vs. OpenSky](agent-desktop-vs-opensky.md)), a PulseAudio null sink if desktop audio is ever needed, and container-level desktop tests in CI.
@@ -73,7 +73,7 @@ smolvm boots in under a second, uses balloon memory, and can checkpoint a runnin
 | Purpose | Hosted, many users; apps shared with other people; agent code mode | One developer's local agent desktop |
 | Boundary | Cloud VM, then Docker; apps in gVisor; agent JS in QuickJS | One microVM per directory, or one container |
 | Network | Host networking for the workspace; strict per-app rules | Internet open; LAN, loopback, metadata and CGNAT blocked |
-| Secrets | Workspace still holds the OpenAI key | Placeholder in guest; host injects the real header |
+| Secrets | Workspace still holds the OpenAI key and reads Secret Manager at bootstrap; the plan is to move both behind the control plane | Placeholder in guest; host injects the real header |
 | Viewer | noVNC on loopback, behind workspace auth, in a Halo pane | voxl, password plus loopback publish, with audio |
 | Agent control | OpenSky: AT-SPI tree plus optional screenshots, Chrome tabs | agent-browser (CDP), agent-desktop (AT-SPI) |
 | DX | Internal APIs: provider interface, `AppSandbox`, `WorkerCodeExecutor.evaluate` | `./wrapvm`, Smolfile, `docker run` |
